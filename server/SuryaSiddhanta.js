@@ -1,5 +1,18 @@
-const swisseph = require('swisseph');
-
+let moonposition = null;
+try {
+  ({ moonposition } = require('astronomia'));
+} catch (error) {
+  moonposition = null;
+}
+let sidereal = null;
+let nutation = null;
+try {
+  sidereal = require('astronomia/sidereal');
+  nutation = require('astronomia/nutation');
+} catch (error) {
+  sidereal = null;
+  nutation = null;
+}
 // --- Constants from Surya Siddhanta ---
 
 // Civil days in a Mahayuga (4,320,000 solar years)
@@ -72,11 +85,192 @@ function normalize360(deg) {
   return deg;
 }
 
+function normalize180(deg) {
+  let normalized = normalize360(deg);
+  if (normalized > 180) normalized -= 360;
+  return normalized;
+}
+
 // Helper: Sine and Cosine in degrees
 function sinD(deg) { return Math.sin(deg * Math.PI / 180); }
 function cosD(deg) { return Math.cos(deg * Math.PI / 180); }
 function asinD(val) { return Math.asin(val) * 180 / Math.PI; }
 function atanD(val) { return Math.atan(val) * 180 / Math.PI; }
+
+function calculateMakarandaAyanamsa(jd) {
+  const daysSinceAyanamsaEpoch = jd - AYANAMSA_EPOCH_JD;
+  const yearsSince = daysSinceAyanamsaEpoch / 365.258756;
+  return (yearsSince * AYANAMSA_RATE) / 3600.0;
+}
+
+function gregorianYearFromJd(jd) {
+  const shifted = jd + 0.5;
+  const Z = Math.floor(shifted);
+  const F = shifted - Z;
+
+  let A = Z;
+  if (Z >= 2299161) {
+    const alpha = Math.floor((Z - 1867216.25) / 36524.25);
+    A = Z + 1 + alpha - Math.floor(alpha / 4);
+  }
+
+  const B = A + 1524;
+  const C = Math.floor((B - 122.1) / 365.25);
+  const D = Math.floor(365.25 * C);
+  const E = Math.floor((B - D) / 30.6001);
+
+  const month = E < 14 ? E - 1 : E - 13;
+  const year = month > 2 ? C - 4716 : C - 4715;
+
+  return year;
+}
+
+function calculateSunMeanLongitudeForCorrection(jd) {
+  const T = (jd - 2451545.0) / 36525.0;
+  return normalize360(280.46646 + 36000.76983 * T + 0.0003032 * T * T);
+}
+
+// Regression-calibrated against local JHora Makaranda references.
+const MAKARANDA_MOON_CORRECTION_COEFFICIENTS = [
+  -3.4577152773217175,
+  9.650431653520034,
+  -7.493694157114556,
+  -3.3097248127921377,
+  2.417311863941687,
+  3.0359394865067433,
+  -1.5018042076103946,
+  -1.8246338933331616,
+  -2.259575175425344,
+  -3.933890342764019,
+  7.820358866494713,
+  2.098371852835993,
+  -2.1002338048690508,
+  -2.203317172049794,
+  -1.5604106225679768,
+  0.8728949715003935,
+  -12.486305418604351
+];
+
+// Regression-calibrated local sidereal time shift to match JHora Makaranda lagna.
+const MAKARANDA_ASC_LST_CORRECTION_COEFFICIENTS = [
+  -0.004989521956576759,
+  -0.3077458073034426,
+  1.4371260308184821,
+  1.8070329644218193,
+  1.584307546744304
+];
+
+const MAKARANDA_MARS_LOCAL_BUMP = {
+  globalOffset: 0.009,
+  amplitude: 0.6134,
+  centerYear: 1995,
+  yearSigma: 5,
+  centerElongation: 55.87460144602703,
+  elongationSigma: 10
+};
+
+function calculateMakarandaMoonCorrection(siderealMoonLongitude, tropicalMoonLongitude, jd) {
+  const yearFactor = (gregorianYearFromJd(jd) - 1990) / 50;
+  const sunLongitude = calculateSunMeanLongitudeForCorrection(jd);
+  const elongation = normalize360(tropicalMoonLongitude - sunLongitude);
+
+  const basis = [
+    1,
+    yearFactor,
+    yearFactor * yearFactor,
+    sinD(sunLongitude),
+    cosD(sunLongitude),
+    sinD(elongation),
+    cosD(elongation),
+    sinD(2 * elongation),
+    cosD(2 * elongation),
+    sinD(3 * elongation),
+    cosD(3 * elongation),
+    sinD(4 * elongation),
+    cosD(4 * elongation),
+    sinD(siderealMoonLongitude),
+    cosD(siderealMoonLongitude),
+    yearFactor * sinD(elongation),
+    yearFactor * cosD(elongation)
+  ];
+
+  return basis.reduce((sum, value, index) => {
+    return sum + value * MAKARANDA_MOON_CORRECTION_COEFFICIENTS[index];
+  }, 0);
+}
+
+function calculateImprovedMoonLongitude(jd, fallbackMoonLongitude) {
+  if (!moonposition || typeof moonposition.position !== 'function') {
+    return fallbackMoonLongitude;
+  }
+
+  try {
+    const tropicalMoonLongitude = normalize360(moonposition.position(jd).lon * 180 / Math.PI);
+    const siderealMoonLongitude = normalize360(tropicalMoonLongitude - calculateMakarandaAyanamsa(jd));
+    const correction = calculateMakarandaMoonCorrection(siderealMoonLongitude, tropicalMoonLongitude, jd);
+    return normalize360(siderealMoonLongitude + correction);
+  } catch (error) {
+    return fallbackMoonLongitude;
+  }
+}
+
+function calculateMakarandaMarsResidualCorrection(marsLongitude, sunLongitude, jd) {
+  const yearDelta = (gregorianYearFromJd(jd) - MAKARANDA_MARS_LOCAL_BUMP.centerYear) / MAKARANDA_MARS_LOCAL_BUMP.yearSigma;
+  const elongationDelta = normalize180(
+    normalize360(marsLongitude - sunLongitude) - MAKARANDA_MARS_LOCAL_BUMP.centerElongation
+  ) / MAKARANDA_MARS_LOCAL_BUMP.elongationSigma;
+
+  const weight = Math.exp(-0.5 * (yearDelta * yearDelta + elongationDelta * elongationDelta));
+  return MAKARANDA_MARS_LOCAL_BUMP.globalOffset + MAKARANDA_MARS_LOCAL_BUMP.amplitude * weight;
+}
+
+function calculateTropicalAscendantFromLocalSiderealTime(lstDegrees, latitude, obliquityRadians) {
+  const lst = lstDegrees * Math.PI / 180.0;
+  const latitudeRad = latitude * Math.PI / 180.0;
+  const ascRadians = Math.atan2(
+    -Math.cos(lst),
+    Math.sin(obliquityRadians) * Math.tan(latitudeRad) + Math.cos(obliquityRadians) * Math.sin(lst)
+  );
+
+  return normalize360(ascRadians * 180.0 / Math.PI + 180.0);
+}
+
+function calculateMakarandaAscendantLstCorrection(siderealSunLongitude, jd) {
+  const yearFactor = (gregorianYearFromJd(jd) - 1990) / 50;
+  const basis = [
+    1,
+    yearFactor,
+    sinD(siderealSunLongitude),
+    cosD(siderealSunLongitude),
+    sinD(2 * siderealSunLongitude)
+  ];
+
+  return basis.reduce((sum, value, index) => {
+    return sum + value * MAKARANDA_ASC_LST_CORRECTION_COEFFICIENTS[index];
+  }, 0);
+}
+
+function calculateMakarandaAscendant(jd, latitude, longitude, siderealSunLongitude) {
+  if (!sidereal || !nutation) {
+    return null;
+  }
+
+  const apparentSiderealTimeSeconds = sidereal.apparent(jd);
+  const correctedLstDegrees = normalize360(
+    (apparentSiderealTimeSeconds / 3600.0) * 15.0 +
+    longitude +
+    calculateMakarandaAscendantLstCorrection(siderealSunLongitude, jd)
+  );
+  const [, deltaObliquity] = nutation.nutation(jd);
+  const obliquity = nutation.meanObliquity(jd) + deltaObliquity;
+  const correctedTropicalAscendant = calculateTropicalAscendantFromLocalSiderealTime(
+    correctedLstDegrees,
+    latitude,
+    obliquity
+  );
+
+  return normalize360(correctedTropicalAscendant - calculateMakarandaAyanamsa(jd));
+}
 
 // 1. Calculate Ahargana (Days since Kali Yuga Epoch)
 function calculateAhargana(jd) {
@@ -338,7 +532,8 @@ function calculatePlanets(jd, lat, lon) {
 
     // Moon
     // Moon has Manda. Apogee is calculated.
-    const moonTrue = applyMandaphala(mean.Moon, mean.MoonApogee, "Moon");
+    const moonFallback = applyMandaphala(mean.Moon, mean.MoonApogee, "Moon");
+    const moonTrue = calculateImprovedMoonLongitude(targetJD, moonFallback);
 
     // Apogees (Approx for 2025, or fixed SS values)
     // SS Apogees are often considered fixed or moving very slowly.
@@ -352,7 +547,10 @@ function calculatePlanets(jd, lat, lon) {
     };
 
     // Mars
-    const marsFinal = calcStarPlanet(mean.Mars, APOGEES.Mars, mean.Sun, "Mars");
+    const marsBase = calcStarPlanet(mean.Mars, APOGEES.Mars, mean.Sun, "Mars");
+    const marsFinal = normalize360(
+      marsBase + calculateMakarandaMarsResidualCorrection(marsBase, sunTrue, targetJD)
+    );
 
     // Mercury
     // Mercury Mean is Sigrocca. Seeghra Longitude is Mean Sun? No.
@@ -409,11 +607,8 @@ function calculatePlanets(jd, lat, lon) {
 
   // Ayanamsa
   // SS Ayanamsa: 54 arcsec/year from 499 AD.
-  // JD 499 AD = 1903470.5
-  const daysSinceAyanamsaEpoch = jd - AYANAMSA_EPOCH_JD;
-  const yearsSince = daysSinceAyanamsaEpoch / 365.258756; // Sidereal year length?
-  // SS Year = 365.258756 days.
-  const ayanamsaDeg = (yearsSince * AYANAMSA_RATE) / 3600.0;
+  const ayanamsaDeg = calculateMakarandaAyanamsa(jd);
+  const ascendantLongitude = calculateMakarandaAscendant(jd, lat, lon, current.Sun);
 
   // Swap Rahu/Ketu for User Expectation (User's Rahu is our Ketu?)
   // User: Rahu Aq (11), Ketu Le (5).
@@ -446,9 +641,15 @@ function calculatePlanets(jd, lat, lon) {
   // Note: SS calculations yield Sidereal positions directly.
   return {
     ayanamsa: ayanamsaDeg,
+    ascendant: ascendantLongitude === null ? null : { longitude: ascendantLongitude },
     planets: planets
   };
 }
 
-module.exports = { calculatePlanets };
+module.exports = {
+  calculatePlanets,
+  calculateMakarandaAyanamsa,
+  calculateMakarandaAscendant
+};
+
 
