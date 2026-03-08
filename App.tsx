@@ -5,7 +5,7 @@ import PlanetaryTable from './components/PlanetaryTable';
 import { BirthDetails, ChartData, AiAnalysisResult, AyanamsaType, CalculationSettings, MakarandaMode } from './types';
 import { calculateChart, getApiUrl, setApiUrl } from './services/calcService';
 import { generateAstrologyReport } from './services/geminiService';
-import { Menu, Star, MapPin, Calendar, Clock, Sparkles, RefreshCw, Settings, Hourglass, X, Search, Globe, Loader2, AlertTriangle, Link } from 'lucide-react';
+import { Menu, Star, MapPin, Calendar, Clock, Sparkles, RefreshCw, Settings, Hourglass, X, Search, Globe, LayoutGrid, Loader2, AlertTriangle, Link } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'basic' | 'dasas' | 'analysis'>('basic');
