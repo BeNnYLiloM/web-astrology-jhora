@@ -1,8 +1,12 @@
 
 import { BirthDetails, ChartData, CalculationSettings } from "../types";
 
-const DEFAULT_API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000/api/calculate';
-const STORAGE_KEY = 'jyotish_api_url';
+const DEFAULT_API_URL = import.meta.env.VITE_API_URL || (
+    typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+        ? 'http://127.0.0.1:3000/api/calculate'
+        : '/api/calculate'
+);
+const STORAGE_KEY = 'jyotish_api_url_v2';
 
 export const getApiUrl = (): string => {
     return localStorage.getItem(STORAGE_KEY) || DEFAULT_API_URL;

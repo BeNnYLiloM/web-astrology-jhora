@@ -3,6 +3,7 @@ try {
   ({ moonposition } = require('astronomia'));
 } catch (error) {
   moonposition = null;
+  console.warn('[Makaranda] astronomia main import unavailable, using fallback Moon model.');
 }
 let sidereal = null;
 let nutation = null;
@@ -12,6 +13,7 @@ try {
 } catch (error) {
   sidereal = null;
   nutation = null;
+  console.warn('[Makaranda] astronomia sidereal/nutation imports unavailable, Ascendant will use fallback path.');
 }
 // --- Constants from Surya Siddhanta ---
 
