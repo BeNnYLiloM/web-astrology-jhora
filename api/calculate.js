@@ -159,7 +159,9 @@ function buildChart(details, settings) {
   const utHour = h + min / 60.0 - details.timezone;
   const jd = toJulianDay(y, m, d, utHour);
 
-  const ssData = calculatePlanets(jd, details.latitude, details.longitude);
+  const ssData = calculatePlanets(jd, details.latitude, details.longitude, {
+    makarandaMode: details.makarandaMode || 'Makaranda Classic'
+  });
   const ayanamsaVal = ssData.ayanamsa;
 
   const planetMap = {};
@@ -216,6 +218,7 @@ function buildChart(details, settings) {
     divisional: { d9: d9Chart },
     ayanamsa: `${Math.floor(ayanamsaVal)}° ${((ayanamsaVal % 1) * 60).toFixed(2)}'`,
     ayanamsaType: details.ayanamsaType,
+    makarandaMode: details.makarandaMode || 'Makaranda Classic',
     dasas,
     settingsUsed: settings
   };

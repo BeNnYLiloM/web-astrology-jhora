@@ -1,4 +1,3 @@
-
 export enum ZodiacSign {
   Aries = 1,
   Taurus = 2,
@@ -22,6 +21,11 @@ export enum AyanamsaType {
   SSS_MAKARANDA = "Sri Surya Siddhanta (Makaranda)"
 }
 
+export enum MakarandaMode {
+  CLASSIC = "Makaranda Classic",
+  GENERALIZED_MUNJALA = "Makaranda Research (Generalized Munjala)"
+}
+
 export type YearDefinition = 'SOLAR' | '360_TITHIS';
 export type CalendarType = 'GREGORIAN' | 'JULIAN' | 'MIXED';
 
@@ -34,16 +38,16 @@ export interface CalculationSettings {
 export interface PlanetPosition {
   name: string;
   sign: ZodiacSign;
-  degree: number; // 0-30 within the sign
+  degree: number;
   nakshatra: string;
   isRetrograde: boolean;
-  house: number; // 1-12 (Calculated based on Ascendant)
+  house: number;
 }
 
 export interface DasaPeriod {
   lord: string;
-  startDate: string; // YYYY-MM-DD
-  endDate: string;   // YYYY-MM-DD
+  startDate: string;
+  endDate: string;
   durationYears: number;
   isCurrent: boolean;
 }
@@ -57,11 +61,12 @@ export interface BirthDetails {
   longitude: number;
   timezone: number;
   ayanamsaType: AyanamsaType;
+  makarandaMode: MakarandaMode;
 }
 
 export interface DivisionalChart {
   name: string;
-  symbol: string; // e.g., "D-9"
+  symbol: string;
   ascendant: PlanetPosition;
   planets: PlanetPosition[];
 }
@@ -74,13 +79,14 @@ export interface ChartData {
   };
   ayanamsa: string;
   ayanamsaType: AyanamsaType;
+  makarandaMode?: MakarandaMode;
   dasas: DasaPeriod[];
   settingsUsed: CalculationSettings;
 }
 
 export enum ChartStyle {
   SouthIndian = 'SOUTH_INDIAN',
-  NorthIndian = 'NORTH_INDIAN' // Simplified demo supports South mostly
+  NorthIndian = 'NORTH_INDIAN'
 }
 
 export interface AiAnalysisResult {

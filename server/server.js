@@ -253,7 +253,9 @@ app.post('/api/calculate', async (req, res) => {
         if (details.ayanamsaType === "Sri Surya Siddhanta (Makaranda)") {
             console.log("Using Custom Surya Siddhanta Calculation...");
             const SuryaSiddhanta = require('./SuryaSiddhanta');
-            const ssData = SuryaSiddhanta.calculatePlanets(jd, details.latitude, details.longitude);
+            const ssData = SuryaSiddhanta.calculatePlanets(jd, details.latitude, details.longitude, {
+                makarandaMode: details.makarandaMode || 'Makaranda Classic'
+            });
             ayanamsaVal = ssData.ayanamsa;
 
             // Map SS planets to response format
@@ -371,6 +373,7 @@ app.post('/api/calculate', async (req, res) => {
             divisional: { d9: d9Chart },
             ayanamsa: `${Math.floor(ayanamsaVal)}° ${((ayanamsaVal % 1) * 60).toFixed(2)}'`,
             ayanamsaType: details.ayanamsaType,
+            makarandaMode: details.ayanamsaType === "Sri Surya Siddhanta (Makaranda)" ? (details.makarandaMode || 'Makaranda Classic') : undefined,
             dasas,
             settingsUsed: settings
         });
