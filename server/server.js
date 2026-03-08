@@ -274,11 +274,14 @@ app.post('/api/calculate', async (req, res) => {
 
             const ORDER = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"];
             computedPlanets = ORDER.map(name => planetMap[name]);
+            let ascRaw = ssData.ascendant && typeof ssData.ascendant.longitude === 'number'
+                ? ssData.ascendant.longitude
+                : null;
 
-            // Ascendant (using Tropical Houses - SS Ayanamsa)
-            const tropicalHouses = await calcHouses(jd, details.latitude, details.longitude);
-            let ascRaw = tropicalHouses.ascendant - ayanamsaVal;
-            ascRaw = normalize360(ascRaw);
+            if (ascRaw === null) {
+                const tropicalHouses = await calcHouses(jd, details.latitude, details.longitude);
+                ascRaw = normalize360(tropicalHouses.ascendant - ayanamsaVal);
+            }
 
             const ascInfo = getSignAndNakshatra(ascRaw);
             ascendant = {
