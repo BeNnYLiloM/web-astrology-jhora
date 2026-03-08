@@ -91,6 +91,16 @@ const GENERALIZED_MUNJALA_RESEARCH_MODEL = {
   },
 };
 
+const GENERALIZED_MUNJALA_ASC_RESEARCH_MODEL = {
+  lstCorrectionCoefficients: [
+    -0.004989521956576759,
+    -0.3077458073034426,
+    1.4371260308184821,
+    1.8070329644218193,
+    1.584307546744304,
+  ],
+};
+
 // Planet IDs for internal use
 const P_SUN = 0;
 const P_MOON = 1;
@@ -161,6 +171,25 @@ function applyMakarandaMoonModel(mean, sunTrue, baseMoonTrue, sunApogee, options
   return applyResearchMoonModel(mean, sunTrue, baseMoonTrue, sunApogee);
 }
 
+function calculateResearchAscendantLstCorrection(siderealSunLongitude, jd) {
+  if (typeof siderealSunLongitude !== 'number') {
+    return 0;
+  }
+
+  const yearFactor = (gregorianYearFromJd(jd) - 1990) / 50;
+  const basis = [
+    1,
+    yearFactor,
+    sinD(siderealSunLongitude),
+    cosD(siderealSunLongitude),
+    sinD(2 * siderealSunLongitude),
+  ];
+
+  return basis.reduce((sum, value, index) => {
+    return sum + value * GENERALIZED_MUNJALA_ASC_RESEARCH_MODEL.lstCorrectionCoefficients[index];
+  }, 0);
+}
+
 function calculateMakarandaAyanamsa(jd) {
   const daysSinceAyanamsaEpoch = jd - AYANAMSA_EPOCH_JD;
   const yearsSince = daysSinceAyanamsaEpoch / 365.258756;
@@ -200,13 +229,16 @@ function calculateTropicalAscendantFromLocalSiderealTime(lstDegrees, latitude, o
   return normalize360(ascRadians * 180.0 / Math.PI + 180.0);
 }
 
-function calculateMakarandaAscendant(jd, latitude, longitude) {
+function calculateMakarandaAscendant(jd, latitude, longitude, siderealSunLongitude = null, options = {}) {
   if (!sidereal || !nutation) {
     return null;
   }
 
   const apparentSiderealTimeSeconds = sidereal.apparent(jd);
-  const lstDegrees = normalize360((apparentSiderealTimeSeconds / 3600.0) * 15.0 + longitude);
+  const lstCorrection = resolveMakarandaMode(options) === MAKARANDA_MODE.GENERALIZED_MUNJALA
+    ? calculateResearchAscendantLstCorrection(siderealSunLongitude, jd)
+    : 0;
+  const lstDegrees = normalize360((apparentSiderealTimeSeconds / 3600.0) * 15.0 + longitude + lstCorrection);
   const [, deltaObliquity] = nutation.nutation(jd);
   const obliquity = nutation.meanObliquity(jd) + deltaObliquity;
   const tropicalAscendant = calculateTropicalAscendantFromLocalSiderealTime(lstDegrees, latitude, obliquity);
@@ -512,7 +544,7 @@ function calculateDiagnostics(jd, latitude = null, longitude = null, options = {
     },
     ascendantLongitude: latitude === null || longitude === null
       ? null
-      : calculateMakarandaAscendant(jd, latitude, longitude)
+      : calculateMakarandaAscendant(jd, latitude, longitude, sunTrue, options)
   };
 }
 
@@ -605,7 +637,7 @@ function calculatePlanets(jd, lat, lon, options = {}) {
   // Ayanamsa
   // SS Ayanamsa: 54 arcsec/year from 499 AD.
   const ayanamsaDeg = calculateMakarandaAyanamsa(jd);
-  const ascendantLongitude = calculateMakarandaAscendant(jd, lat, lon, current.Sun);
+  const ascendantLongitude = calculateMakarandaAscendant(jd, lat, lon, current.Sun, options);
 
   // Swap Rahu/Ketu for User Expectation (User's Rahu is our Ketu?)
   // User: Rahu Aq (11), Ketu Le (5).

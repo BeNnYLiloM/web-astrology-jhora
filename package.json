@@ -42,7 +42,8 @@
     "search:missing-lunar-term": "node server/search_missing_lunar_term.js",
     "compare:generalized-munjala-plus-term": "node server/compare_generalized_munjala_plus_term.js",
     "evaluate:classical-more-terms": "node server/evaluate_classical_more_terms.js",
-    "evaluate:two-term-lunar-family": "node server/evaluate_two_term_lunar_family.js"
+    "evaluate:two-term-lunar-family": "node server/evaluate_two_term_lunar_family.js",
+    "analyze:ascendant": "node server/analyze_ascendant_references.js"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
