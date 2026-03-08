@@ -132,9 +132,9 @@ function asinD(val) { return Math.asin(val) * 180 / Math.PI; }
 function atanD(val) { return Math.atan(val) * 180 / Math.PI; }
 
 function resolveMakarandaMode(options = {}) {
-  return options && options.makarandaMode === MAKARANDA_MODE.GENERALIZED_MUNJALA
-    ? MAKARANDA_MODE.GENERALIZED_MUNJALA
-    : MAKARANDA_MODE.CLASSIC;
+  return options && options.makarandaMode === MAKARANDA_MODE.CLASSIC
+    ? MAKARANDA_MODE.CLASSIC
+    : MAKARANDA_MODE.GENERALIZED_MUNJALA;
 }
 
 function applyResearchMoonModel(mean, sunTrue, baseMoonTrue, sunApogee) {

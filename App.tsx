@@ -5,7 +5,7 @@ import PlanetaryTable from './components/PlanetaryTable';
 import { BirthDetails, ChartData, AiAnalysisResult, AyanamsaType, CalculationSettings, MakarandaMode } from './types';
 import { calculateChart, getApiUrl, setApiUrl } from './services/calcService';
 import { generateAstrologyReport } from './services/geminiService';
-import { Menu, Star, MapPin, Calendar, Clock, Sparkles, RefreshCw, Settings, Hourglass, X, Search, Globe, LayoutGrid, Loader2, AlertTriangle, Link } from 'lucide-react';
+import { Menu, Star, MapPin, Calendar, Clock, Sparkles, RefreshCw, Settings, Hourglass, X, Search, Globe, Loader2, AlertTriangle, Link } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'basic' | 'dasas' | 'analysis'>('basic');
@@ -20,7 +20,7 @@ const App: React.FC = () => {
     longitude: 77.20,
     timezone: 5.5, // IST
     ayanamsaType: AyanamsaType.LAHIRI, // Default
-    makarandaMode: MakarandaMode.CLASSIC
+    makarandaMode: MakarandaMode.GENERALIZED_MUNJALA
   });
 
   const [isManualLocation, setIsManualLocation] = useState(false);
@@ -383,25 +383,6 @@ const App: React.FC = () => {
                     ))}
                 </select>
             </div>
-
-            {details.ayanamsaType === AyanamsaType.SSS_MAKARANDA && (
-              <div>
-                <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1"><LayoutGrid size={10}/> Makaranda System</label>
-                <select
-                    name="makarandaMode"
-                    value={details.makarandaMode}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:ring-1 focus:ring-amber-500 outline-none"
-                >
-                    {Object.values(MakarandaMode).map((mode) => (
-                        <option key={mode} value={mode}>{mode}</option>
-                    ))}
-                </select>
-                <div className="mt-2 text-xs text-slate-500">
-                  Classic keeps the current Makaranda engine. Research runs the new experimental Moon model separately.
-                </div>
-              </div>
-            )}
 
             <div className="pt-2 border-t border-slate-800 mt-2">
                 <button 
