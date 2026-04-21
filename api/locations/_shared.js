@@ -1,4 +1,13 @@
 const LOCATION_TYPE_PRIORITY = {
+  PPLA: 0,
+  PPLC: 0,
+  PPL: 1,
+  PPLA2: 1,
+  PPLA3: 2,
+  PPLA4: 2,
+  PPLL: 2,
+  ADM2: 3,
+  ADM1: 4,
   city: 0,
   town: 1,
   village: 2,
@@ -24,36 +33,32 @@ const dedupeParts = (...parts) => {
   });
 };
 
-export const normalizePhotonResult = (feature, index) => {
-  const properties = feature?.properties || {};
-  const coordinates = feature?.geometry?.coordinates || [];
-  const longitude = Number(coordinates[0]);
-  const latitude = Number(coordinates[1]);
+export const normalizeOpenMeteoResult = (item, index) => {
+  const latitude = Number(item?.latitude);
+  const longitude = Number(item?.longitude);
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return null;
   }
 
-  const type = properties.type || properties.osm_value || 'location';
-  const region = properties.state || properties.county || properties.district || properties.locality;
+  const type = item?.feature_code || item?.admin4 || item?.admin3 || item?.admin2 || item?.admin1 || 'location';
+  const region = item?.admin1 || item?.admin2 || item?.admin3 || item?.admin4;
   const labelParts = dedupeParts(
-    properties.name,
-    properties.city,
-    properties.locality,
-    properties.district,
-    properties.state,
-    properties.country
+    item?.name,
+    item?.admin1,
+    item?.country
   );
 
   return {
-    id: `${properties.osm_type || 'X'}-${properties.osm_id || index}`,
-    name: properties.name || properties.city || properties.locality || properties.county || 'Unknown location',
+    id: String(item?.id || `${item?.country_code || 'XX'}-${item?.name || 'location'}-${index}`),
+    name: item?.name || 'Unknown location',
     displayName: labelParts.join(', '),
     region,
-    country: properties.country || '',
-    countryCode: properties.countrycode ? String(properties.countrycode).toUpperCase() : undefined,
+    country: item?.country || '',
+    countryCode: item?.country_code ? String(item.country_code).toUpperCase() : undefined,
     latitude,
     longitude,
+    timezone: item?.timezone,
     type
   };
 };
