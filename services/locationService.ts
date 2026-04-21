@@ -1,21 +1,19 @@
 import { LocationSuggestion } from "../types";
-import { getApiUrl } from "./calcService";
 
-const buildApiUrl = (pathname: string) => {
-  const calculateUrl = getApiUrl();
+const LOCATION_API_BASE =
+  import.meta.env.VITE_LOCATION_API_URL ||
+  (typeof window !== "undefined" ? window.location.origin : "");
 
+const buildLocationApiUrl = (pathname: string) => {
   try {
-    const url = new URL(calculateUrl, window.location.origin);
-    url.pathname = pathname;
-    url.search = "";
-    return url.toString();
+    return new URL(pathname, LOCATION_API_BASE || window.location.origin).toString();
   } catch {
     return pathname;
   }
 };
 
-const LOCATIONS_API_URL = () => buildApiUrl("/api/locations");
-const LOCATION_TIMEZONE_API_URL = () => buildApiUrl("/api/locations/timezone");
+const LOCATIONS_API_URL = () => buildLocationApiUrl("/api/locations");
+const LOCATION_TIMEZONE_API_URL = () => buildLocationApiUrl("/api/locations/timezone");
 
 export const searchLocations = async (
   query: string,
