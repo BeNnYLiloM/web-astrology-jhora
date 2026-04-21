@@ -64,6 +64,19 @@ export interface BirthDetails {
   makarandaMode: MakarandaMode;
 }
 
+export interface LocationSuggestion {
+  id: string;
+  name: string;
+  displayName: string;
+  region?: string;
+  country: string;
+  countryCode?: string;
+  latitude: number;
+  longitude: number;
+  timezone?: string;
+  type?: string;
+}
+
 export interface DivisionalChart {
   name: string;
   symbol: string;

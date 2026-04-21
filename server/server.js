@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const swisseph = require('swisseph');
 const path = require('path');
+const axios = require('axios');
 const SuryaSiddhanta = require('./SuryaSiddhanta');
 
 const app = express();
@@ -104,6 +105,104 @@ const getSignAndNakshatra = (longitude) => {
         degree: degree,
         nakshatra: NAKSHATRAS[nakshatraIndex] || "Unknown"
     };
+};
+
+const LOCATION_TYPE_PRIORITY = {
+    city: 0,
+    town: 1,
+    village: 2,
+    hamlet: 3,
+    locality: 4,
+    county: 5,
+    district: 6,
+    state: 7
+};
+
+const dedupeParts = (...parts) => {
+    const seen = new Set();
+    return parts.filter((part) => {
+        if (!part) return false;
+        const normalized = String(part).trim();
+        if (!normalized) return false;
+
+        const key = normalized.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
+
+const normalizePhotonResult = (feature, index) => {
+    const properties = feature?.properties || {};
+    const coordinates = feature?.geometry?.coordinates || [];
+    const longitude = Number(coordinates[0]);
+    const latitude = Number(coordinates[1]);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return null;
+    }
+
+    const type = properties.type || properties.osm_value || 'location';
+    const region = properties.state || properties.county || properties.district || properties.locality;
+    const labelParts = dedupeParts(
+        properties.name,
+        properties.city,
+        properties.locality,
+        properties.district,
+        properties.state,
+        properties.country
+    );
+
+    return {
+        id: `${properties.osm_type || 'X'}-${properties.osm_id || index}`,
+        name: properties.name || properties.city || properties.locality || properties.county || 'Unknown location',
+        displayName: labelParts.join(', '),
+        region,
+        country: properties.country || '',
+        countryCode: properties.countrycode ? String(properties.countrycode).toUpperCase() : undefined,
+        latitude,
+        longitude,
+        type
+    };
+};
+
+const rankLocationResult = (result) => {
+    const typeRank = LOCATION_TYPE_PRIORITY[result.type] ?? 99;
+    const hasRegion = result.region ? 0 : 1;
+    const hasCountry = result.country ? 0 : 1;
+
+    return [typeRank, hasRegion, hasCountry, result.displayName.length];
+};
+
+const compareRank = (left, right) => {
+    for (let i = 0; i < left.length; i += 1) {
+        if (left[i] !== right[i]) {
+            return left[i] - right[i];
+        }
+    }
+    return 0;
+};
+
+const pickNearestTimezoneResult = (results, latitude, longitude, countryCode) => {
+    const normalizedCountryCode = countryCode ? String(countryCode).toLowerCase() : null;
+
+    const filtered = results.filter((item) => {
+        if (!normalizedCountryCode) return true;
+        return String(item.country_code || '').toLowerCase() === normalizedCountryCode;
+    });
+
+    const candidates = filtered.length > 0 ? filtered : results;
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+        return null;
+    }
+
+    return candidates.reduce((best, current) => {
+        const currentDistance = Math.abs(current.latitude - latitude) + Math.abs(current.longitude - longitude);
+        if (!best) {
+            return { item: current, distance: currentDistance };
+        }
+        return currentDistance < best.distance ? { item: current, distance: currentDistance } : best;
+    }, null)?.item || null;
 };
 
 const calculateD9 = (ascLong, planets) => {
@@ -211,6 +310,84 @@ const calculateDasas = (moonLong, birthDateIso, settings) => {
 
 app.get('/', (req, res) => {
     res.send('Jyotish Backend is running correctly. Send POST requests to /api/calculate.');
+});
+
+app.get('/api/locations', async (req, res) => {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 7, 1), 10);
+    const lang = typeof req.query.lang === 'string' ? req.query.lang : 'ru';
+
+    if (query.length < 2) {
+        return res.json({ results: [] });
+    }
+
+    try {
+        const response = await axios.get('https://photon.komoot.io/api', {
+            params: {
+                q: query,
+                limit,
+                lang
+            },
+            timeout: 5000,
+            headers: {
+                'User-Agent': 'JyotishWeb/1.0'
+            }
+        });
+
+        const features = Array.isArray(response.data?.features) ? response.data.features : [];
+        const results = features
+            .map(normalizePhotonResult)
+            .filter(Boolean)
+            .sort((a, b) => compareRank(rankLocationResult(a), rankLocationResult(b)))
+            .slice(0, limit);
+
+        return res.json({ results });
+    } catch (error) {
+        console.error('Location search failed:', error.message || error);
+        return res.status(502).json({ error: true, reason: 'Location search is temporarily unavailable.' });
+    }
+});
+
+app.get('/api/locations/timezone', async (req, res) => {
+    const name = typeof req.query.name === 'string' ? req.query.name.trim() : '';
+    const countryCode = typeof req.query.countryCode === 'string' ? req.query.countryCode.trim() : '';
+    const latitude = Number(req.query.lat);
+    const longitude = Number(req.query.lon);
+
+    if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return res.status(400).json({ error: true, reason: 'Missing or invalid location parameters.' });
+    }
+
+    try {
+        const response = await axios.get('https://geocoding-api.open-meteo.com/v1/search', {
+            params: {
+                name,
+                count: 10,
+                language: 'ru',
+                format: 'json',
+                countryCode: countryCode || undefined
+            },
+            timeout: 5000,
+            headers: {
+                'User-Agent': 'JyotishWeb/1.0'
+            }
+        });
+
+        const results = Array.isArray(response.data?.results) ? response.data.results : [];
+        const matched = pickNearestTimezoneResult(results, latitude, longitude, countryCode);
+
+        if (!matched?.timezone) {
+            return res.status(404).json({ error: true, reason: 'Timezone not found for location.' });
+        }
+
+        return res.json({
+            timezone: matched.timezone,
+            matchedPlace: matched.name
+        });
+    } catch (error) {
+        console.error('Timezone lookup failed:', error.message || error);
+        return res.status(502).json({ error: true, reason: 'Timezone lookup is temporarily unavailable.' });
+    }
 });
 
 app.post('/api/calculate', async (req, res) => {
