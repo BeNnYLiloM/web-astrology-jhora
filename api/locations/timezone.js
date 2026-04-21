@@ -25,11 +25,7 @@ export default async function handler(req, res) {
       url.searchParams.set('countryCode', countryCode);
     }
 
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'JyotishWeb/1.0'
-      }
-    });
+    const response = await fetch(url);
 
     if (!response.ok) {
       throw new Error(`Open-Meteo responded with ${response.status}`);
@@ -49,6 +45,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('Timezone lookup failed:', error.message || error);
-    return res.status(502).json({ error: true, reason: 'Timezone lookup is temporarily unavailable.' });
+    return res.status(502).json({ error: true, reason: 'Timezone lookup is temporarily unavailable.', source: 'open-meteo' });
   }
 }
