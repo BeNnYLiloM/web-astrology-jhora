@@ -2,9 +2,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import SouthIndianChart from './components/SouthIndianChart';
 import PlanetaryTable from './components/PlanetaryTable';
-import { BirthDetails, ChartData, AiAnalysisResult, AyanamsaType, CalculationSettings, MakarandaMode } from './types';
+import { BirthDetails, ChartData, AiAnalysisResult, AyanamsaType, CalculationSettings, LocationSuggestion, MakarandaMode } from './types';
 import { calculateChart, getApiUrl, setApiUrl } from './services/calcService';
 import { generateAstrologyReport } from './services/geminiService';
+import { resolveLocationTimezone, searchLocations } from './services/locationService';
 import { Menu, Star, MapPin, Calendar, Clock, Sparkles, RefreshCw, Settings, Hourglass, X, Search, Globe, LayoutGrid, Loader2, AlertTriangle, Link } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -25,9 +26,16 @@ const App: React.FC = () => {
 
   const [isManualLocation, setIsManualLocation] = useState(false);
   const [cityQuery, setCityQuery] = useState('New Delhi');
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearchingLocations, setIsSearchingLocations] = useState(false);
+  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [selectedTimezoneIana, setSelectedTimezoneIana] = useState<string | null>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const timezoneAbortRef = useRef<AbortController | null>(null);
+  const locationPanelRef = useRef<HTMLDivElement | null>(null);
 
   const [calcSettings, setCalcSettings] = useState<CalculationSettings>({
     lifecycleYears: 144,
@@ -68,6 +76,32 @@ const App: React.FC = () => {
     runCalculation();
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!locationPanelRef.current?.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchAbortRef.current?.abort();
+      timezoneAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTimezoneIana || isManualLocation) return;
+
+    const offset = calculateTimezoneOffset(selectedTimezoneIana, details.date, details.time);
+    setDetails(prev => ({
+      ...prev,
+      timezone: offset
+    }));
+  }, [selectedTimezoneIana, details.date, details.time, isManualLocation]);
+
   const handleUpdateUrl = () => {
     setApiUrl(customApiUrl);
     runCalculation();
@@ -92,27 +126,39 @@ const App: React.FC = () => {
   const handleCitySearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setCityQuery(val);
+    setLocationError(null);
     
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchAbortRef.current?.abort();
 
-    if (val.length > 2) {
+    if (val.trim().length > 1) {
         searchTimeoutRef.current = setTimeout(async () => {
+            const controller = new AbortController();
+            searchAbortRef.current = controller;
+            setIsSearchingLocations(true);
             try {
-                const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(val)}&count=5&language=en&format=json`);
-                const data = await res.json();
-                if (data.results) {
-                    setSuggestions(data.results);
+                const results = await searchLocations(val.trim(), controller.signal);
+                if (results.length > 0) {
+                    setSuggestions(results);
                     setShowSuggestions(true);
                 } else {
                     setSuggestions([]);
+                    setShowSuggestions(false);
                 }
-            } catch (err) {
+            } catch (err: any) {
+                if (err?.name === 'AbortError') return;
                 console.error("Geocoding error", err);
+                setSuggestions([]);
+                setShowSuggestions(false);
+                setLocationError("Location search is temporarily unavailable.");
+            } finally {
+                setIsSearchingLocations(false);
             }
-        }, 400);
+        }, 350);
     } else {
         setSuggestions([]);
         setShowSuggestions(false);
+        setIsSearchingLocations(false);
     }
   };
 
@@ -138,21 +184,49 @@ const App: React.FC = () => {
     }
   };
 
-  const selectCity = (city: any) => {
-      const offset = city.timezone ? calculateTimezoneOffset(city.timezone, details.date, details.time) : 0;
-      
+  const selectCity = async (city: LocationSuggestion) => {
+      timezoneAbortRef.current?.abort();
+      const controller = new AbortController();
+      timezoneAbortRef.current = controller;
+
+      setLocationError(null);
+      setShowSuggestions(false);
+      setSuggestions([]);
+      setCityQuery(city.displayName);
       setDetails(prev => ({
           ...prev,
           latitude: city.latitude,
           longitude: city.longitude,
-          timezone: offset,
-          place: `${city.name}, ${city.country || ''}`,
+          place: city.displayName,
       }));
-      setCityQuery(`${city.name}, ${city.country || ''}`);
-      setShowSuggestions(false);
+
+      setIsResolvingLocation(true);
+      try {
+        const timezone = city.timezone || await resolveLocationTimezone(city, controller.signal);
+        const offset = timezone ? calculateTimezoneOffset(timezone, details.date, details.time) : details.timezone;
+        setSelectedTimezoneIana(timezone || null);
+
+        setDetails(prev => ({
+          ...prev,
+          latitude: city.latitude,
+          longitude: city.longitude,
+          timezone: offset,
+          place: city.displayName,
+        }));
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('Timezone resolution failed', err);
+          setLocationError('Coordinates were updated, but timezone could not be resolved automatically.');
+        }
+      } finally {
+        setIsResolvingLocation(false);
+      }
   };
 
   const handleManualToggle = () => {
+    if (!isManualLocation) {
+      setSelectedTimezoneIana(null);
+    }
     setIsManualLocation(!isManualLocation);
   };
 
@@ -279,7 +353,7 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2 relative">
+            <div className="space-y-2 relative" ref={locationPanelRef}>
                 <div className="flex justify-between items-center">
                     <label className="text-xs uppercase tracking-wider text-slate-500 flex items-center gap-1">
                         <MapPin size={10}/> Location
@@ -300,20 +374,29 @@ const App: React.FC = () => {
                                 placeholder="Start typing city..."
                                 value={cityQuery}
                                 onChange={handleCitySearch}
+                                onFocus={() => {
+                                  if (suggestions.length > 0) setShowSuggestions(true);
+                                }}
                                 className="w-full bg-slate-800 border border-slate-700 rounded pl-8 pr-3 py-2 text-sm text-white focus:ring-1 focus:ring-amber-500 outline-none"
                             />
-                            <Search className="absolute left-2.5 top-2.5 text-slate-500 w-4 h-4" />
+                            {isSearchingLocations ? (
+                              <Loader2 className="absolute left-2.5 top-2.5 text-slate-500 w-4 h-4 animate-spin" />
+                            ) : (
+                              <Search className="absolute left-2.5 top-2.5 text-slate-500 w-4 h-4" />
+                            )}
                         </div>
                         {showSuggestions && suggestions.length > 0 && (
                             <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-700 rounded shadow-xl max-h-48 overflow-y-auto">
-                                {suggestions.map((city, idx) => (
+                                {suggestions.map((city) => (
                                     <div 
-                                        key={idx}
+                                        key={city.id}
                                         onClick={() => selectCity(city)}
-                                        className="px-3 py-2 hover:bg-slate-700 cursor-pointer text-xs text-slate-200 border-b border-slate-700/50 flex flex-col"
+                                        className="px-3 py-2 hover:bg-slate-700 cursor-pointer text-xs text-slate-200 border-b border-slate-700/50 flex flex-col gap-0.5"
                                     >
-                                        <span className="font-medium">{city.name}</span>
-                                        <span className="text-[10px] text-slate-400">{city.admin1 ? `${city.admin1}, ` : ''}{city.country}</span>
+                                        <span className="font-medium">{city.displayName}</span>
+                                        <span className="text-[10px] text-slate-400">
+                                          {city.latitude.toFixed(4)}, {city.longitude.toFixed(4)}
+                                        </span>
                                     </div>
                                 ))}
                             </div>
@@ -322,6 +405,15 @@ const App: React.FC = () => {
                              <span>Lat: {details.latitude.toFixed(4)}</span>
                              <span>Long: {details.longitude.toFixed(4)}</span>
                         </div>
+                        <div className="text-[10px] text-slate-400 mt-1">
+                          {details.place || cityQuery}
+                        </div>
+                        {isResolvingLocation && (
+                          <div className="text-[10px] text-amber-500 mt-1">Resolving timezone for selected location...</div>
+                        )}
+                        {locationError && (
+                          <div className="text-[10px] text-red-400 mt-1">{locationError}</div>
+                        )}
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 gap-3 animate-fade-in">
